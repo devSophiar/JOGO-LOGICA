@@ -12,11 +12,13 @@ AZUL = (0, 0, 255)
 DESTAQUE = (0, 255, 0)
 CINZA = (169, 169, 169)
 VERDE = (0, 255, 0)
+VERMELHO = (255, 0, 0)
 SOMBRA = (150, 150, 150)
 
 fonte_titulo = pygame.font.Font(None, 60)
 fonte_problema = pygame.font.Font(None, 50)
 fonte_entrada = pygame.font.Font(None, 40)
+fonte_instrucao = pygame.font.Font(None, 30)
 
 imagem = pygame.image.load("bibliotecaaa.png")
 imagem = pygame.transform.scale(imagem, (800, 400))
@@ -47,6 +49,7 @@ class BlocoImagem(pygame.sprite.Sprite):
         self.problema = problema
         self.resposta = resposta
         self.revelado = False
+        self.bloqueado = False
         self.texto_entrada = ""
         self.tentativas = 0
         self.max_tentativas = 2
@@ -73,13 +76,14 @@ class BlocoImagem(pygame.sprite.Sprite):
         return None
 
     def atualizar(self, pos_mouse):
-        if self.rect.collidepoint(pos_mouse) and not self.revelado:
+        if self.rect.collidepoint(pos_mouse) and not self.revelado and not self.bloqueado:
             pygame.draw.rect(self.image, DESTAQUE, self.image.get_rect(), 5)
         else:
             pygame.draw.rect(self.image, AZUL, self.image.get_rect(), 5)
 
     def bloquear_bloco(self):
         self.image.fill(CINZA)
+        self.bloqueado = True
 
 blocos = pygame.sprite.Group()
 posicoes = [(0, 100), (400, 100), (0, 300), (400, 300)]
@@ -88,11 +92,35 @@ for pos, parte in zip(posicoes, partes_imagem):
     bloco = BlocoImagem(*pos, parte, problema, resposta)
     blocos.add(bloco)
 
-def desenhar_caixa_entrada(superficie, texto_entrada, x, y, largura=300, altura=50):
+def desenhar_texto_centralizado(texto, fonte, cor, y):
+    texto_surface = fonte.render(texto, True, cor)
+    tela.blit(texto_surface, (tela.get_width() // 2 - texto_surface.get_width() // 2, y))
+
+def desenhar_caixa_entrada(superficie, texto_entrada, x, y, blocos_revelados, largura=300, altura=50):
     caixa_entrada = pygame.Rect(x, y, largura, altura)
-    pygame.draw.rect(superficie, PRETO, caixa_entrada, 2)
+    cor_caixa = DESTAQUE if caixa_entrada.collidepoint(pygame.mouse.get_pos()) and blocos_revelados > 0 else PRETO
+    pygame.draw.rect(superficie, cor_caixa, caixa_entrada, 2)
     texto_surface = fonte_entrada.render(texto_entrada, True, PRETO)
     superficie.blit(texto_surface, (caixa_entrada.x + 10, caixa_entrada.y + 10))
+
+def tela_instrucoes():
+    tela.fill(BRANCO)
+    pygame.draw.rect(tela, AZUL, (40, 70, 720, 250), 5)
+    instrucoes = [
+        "Bem-vindo ao nosso jogo! Novo por aqui?",
+        "1. Clique em qualquer quadrado para aparecer a conta matemática.",
+        "2. Resolva-a para revelar uma parte da imagem.",
+        "3. Após resolver todas, adivinhe a imagem para vencer!",
+        "4. Se errar 2 vezes, perde a chance de revelar aquela parte."
+    ]
+    for i, instrucao in enumerate(instrucoes):
+        desenhar_texto_centralizado(instrucao, fonte_instrucao, PRETO, 100 + i * 40)
+
+    x_rect = pygame.Rect(750, 20, 30, 30)
+    cor_x = BRANCO if x_rect.collidepoint(pygame.mouse.get_pos()) else PRETO
+    pygame.draw.rect(tela, PRETO, x_rect)
+    tela.blit(fonte_instrucao.render("X", True, cor_x), (758, 20))
+    pygame.display.flip()
 
 def desenhar_titulo(superficie, texto, x, y):
     sombra_surface = fonte_titulo.render(texto, True, SOMBRA)
@@ -107,18 +135,29 @@ def tela_vitoria():
     pygame.display.flip()
     pygame.time.delay(3000)
 
-rodando = True
-bloco_atual = None
-blocos_revelados = 0
-max_revelacoes = 4
-texto_adivinhar = ""
-vitoria = False
+def tela_derrota():
+    tela.fill(BRANCO)
+    texto_derrota = fonte_titulo.render("Você Perdeu!", True, VERMELHO)
+    tela.blit(texto_derrota, (250, 250))
+    pygame.display.flip()
+    pygame.time.delay(3000)
+
+rodando, bloco_atual, texto_adivinhar = True, None, ""
+blocos_revelados, max_revelacoes, vitoria = 0, 4, False
+exibindo_instrucoes = True
+tentativas_adivinhacao = 0 
 
 while rodando:
     pos_mouse = pygame.mouse.get_pos()
     for evento in pygame.event.get():
         if evento.type == pygame.QUIT:
             rodando = False
+
+        if exibindo_instrucoes:
+            if evento.type == pygame.MOUSEBUTTONDOWN:
+                if pygame.Rect(750, 20, 30, 30).collidepoint(evento.pos):
+                    exibindo_instrucoes = False
+            continue
 
         if bloco_atual:
             entrada_usuario = bloco_atual.lidar_entrada(evento)
@@ -136,7 +175,7 @@ while rodando:
 
         elif evento.type == pygame.MOUSEBUTTONDOWN and blocos_revelados < max_revelacoes:
             for bloco in blocos:
-                if bloco.rect.collidepoint(evento.pos):
+                if bloco.rect.collidepoint(evento.pos) and not bloco.bloqueado:
                     bloco_atual = bloco if not bloco.revelado else None
 
         if evento.type == pygame.KEYDOWN and not bloco_atual:
@@ -147,9 +186,22 @@ while rodando:
                     vitoria = True
                     rodando = False
                 else:
+                    tentativas_adivinhacao += 1  
                     texto_adivinhar = ""
+                    if tentativas_adivinhacao >= 3:
+                        tela_derrota()
+                        rodando = False
             else:
                 texto_adivinhar += evento.unicode
+
+    if exibindo_instrucoes:
+        tela_instrucoes()
+        pygame.display.flip()
+        continue
+
+    if all(bloco.bloqueado for bloco in blocos):
+        tela_derrota()
+        rodando = False
 
     for bloco in blocos:
         bloco.atualizar(pos_mouse)
@@ -157,7 +209,7 @@ while rodando:
     tela.fill(BRANCO)
     desenhar_titulo(tela, "Adivinhe a Imagem Matemática", 150, 20)
     blocos.draw(tela)
-    desenhar_caixa_entrada(tela, texto_adivinhar, 250, 520, 300, 50)
+    desenhar_caixa_entrada(tela, texto_adivinhar, 250, 520, blocos_revelados, 300, 50)
 
     if bloco_atual:
         bloco_atual.desenhar_problema(tela)
@@ -166,5 +218,7 @@ while rodando:
 
 if vitoria:
     tela_vitoria()
+elif tentativas_adivinhacao >= 3:
+    tela_derrota()
 
 pygame.quit()
